@@ -10,8 +10,8 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 
-# NEW AGENT IMPORTS
-from langchain.tools.retriever import create_retriever_tool
+# THE FIX: Imported from langchain_core.tools instead of langchain.tools.retriever
+from langchain_core.tools import create_retriever_tool
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 
