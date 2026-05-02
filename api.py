@@ -5,13 +5,17 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from langchain_chroma import Chroma
-# CHANGE 1: Import the Endpoint version instead
 from langchain_huggingface import HuggingFaceEndpointEmbeddings 
 from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage
 
-app = FastAPI(title="Cricket AI Analyst API")
+# NEW AGENT IMPORTS
+from langchain.tools.retriever import create_retriever_tool
+from langchain_community.tools import DuckDuckGoSearchRun
+from langchain.agents import create_tool_calling_agent, AgentExecutor
+
+app = FastAPI(title="Cricket AI Agent API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,39 +33,58 @@ if not os.path.exists(db_path):
 
 ai_cache = {}
 
-def get_ai_engines():
-    if "retriever" not in ai_cache:
-        print("Loading AI Engines (Using HuggingFace API to save memory)...")
+def get_ai_agent():
+    if "agent_executor" not in ai_cache:
+        print("Loading AI Agent and equipping tools...")
         
-        # CHANGE 2: Use the API endpoint instead of downloading the model locally
+        # 1. Load Embeddings (Using API to prevent Render crashes)
         embeddings = HuggingFaceEndpointEmbeddings(
             model="sentence-transformers/all-MiniLM-L6-v2",
             huggingfacehub_api_token=os.environ.get("HF_TOKEN")
         )
-        
         vectorstore = Chroma(persist_directory=db_path, embedding_function=embeddings)
-        ai_cache["retriever"] = vectorstore.as_retriever(search_kwargs={"k": 3})
-        ai_cache["llm"] = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.3)
-        print("AI Models loaded and ready to answer!")
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+        
+        # 2. CREATE TOOL 1: The Historical Database
+        retriever_tool = create_retriever_tool(
+            retriever,
+            "historical_cricket_data",
+            "Search this tool FIRST for past cricket matches, historical stats, player info, and rules."
+        )
+        
+        # 3. CREATE TOOL 2: Live Internet Search
+        search_tool = DuckDuckGoSearchRun(
+            name="live_internet_search",
+            description="Search the internet for LIVE cricket scores, breaking news, or matches happening today."
+        )
+        
+        tools = [retriever_tool, search_tool]
+        
+        # 4. Setup LLM (Temperature 0 is best for agents so they think logically)
+        llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
+        
+        # 5. Create the Agent Prompt
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are a hyper-niche, expert cricket sports analyst. "
+                       "You have access to tools. Use them to answer the user's questions! "
+                       "If the question is about historical data, use the historical_cricket_data tool. "
+                       "If it is about a live match or current news, use the live_internet_search tool. "
+                       "Always write like an energetic, passionate sports commentator!"),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ])
+        
+        # 6. Build the Agent
+        agent = create_tool_calling_agent(llm, tools, prompt)
+        
+        # verbose=True lets you see the agent's thought process in the Render logs!
+        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+        
+        ai_cache["agent_executor"] = agent_executor
+        print("AI Agent loaded and ready to answer!")
     
-    return ai_cache["retriever"], ai_cache["llm"]
-
-system_prompt = (
-    "You are a hyper-niche, expert cricket sports analyst. "
-    "Use the following pieces of retrieved context AND the chat history to answer the user's question.\n\n"
-    "Chat History:\n{chat_history}\n\n"
-    "Context:\n{context}\n\n"
-    "If you don't know the answer, say you don't have that data yet. "
-    "Write like an energetic sports commentator."
-)
-
-prompt = ChatPromptTemplate.from_messages([
-    ("system", system_prompt),
-    ("human", "{input}")
-])
-
-def format_docs(docs):
-    return "\n\n".join(doc.page_content for doc in docs)
+    return ai_cache["agent_executor"]
 
 class Message(BaseModel):
     sender: str
@@ -73,26 +96,24 @@ class ChatRequest(BaseModel):
 
 @app.post("/ask")
 async def ask_analyst(request: ChatRequest):
-    retriever, llm = get_ai_engines()
+    agent_executor = get_ai_agent()
     
-    docs = retriever.invoke(request.question)
-    context_text = format_docs(docs)
-    
-    history_string = ""
+    # Convert your frontend history into LangChain's memory format
+    langchain_history = []
     for msg in request.history:
-        role = "User" if msg.sender == "user" else "AI Analyst"
-        history_string += f"{role}: {msg.text}\n"
+        if msg.sender == "user":
+            langchain_history.append(HumanMessage(content=msg.text))
+        else:
+            langchain_history.append(AIMessage(content=msg.text))
     
-    chain = prompt | llm | StrOutputParser()
-    
-    response_text = chain.invoke({
+    # Invoke the agent! It will automatically think, pick a tool, search, and answer.
+    response = agent_executor.invoke({
         "input": request.question,
-        "chat_history": history_string,
-        "context": context_text
+        "chat_history": langchain_history
     })
     
-    return {"answer": response_text}
+    return {"answer": response["output"]}
 
 @app.get("/")
 async def root():
-    return {"status": "AI Server is running live!"}
+    return {"status": "AI Live Agent Server is running!"}
