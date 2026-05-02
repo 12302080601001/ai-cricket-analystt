@@ -5,12 +5,12 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+# CHANGE 1: Import the Endpoint version instead
+from langchain_huggingface import HuggingFaceEndpointEmbeddings 
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-# 1. Initialize App (Starts instantly now!)
 app = FastAPI(title="Cricket AI Analyst API")
 
 app.add_middleware(
@@ -27,14 +27,18 @@ db_path = "./chroma_db"
 if not os.path.exists(db_path):
     os.makedirs(db_path)
 
-# 2. Lazy Loader: Only loads when asked
 ai_cache = {}
 
 def get_ai_engines():
     if "retriever" not in ai_cache:
-        print("First request! Downloading AI models now (this takes ~60 seconds)...")
-        # The heavy lifting happens HERE now, safely out of the startup phase
-        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        print("Loading AI Engines (Using HuggingFace API to save memory)...")
+        
+        # CHANGE 2: Use the API endpoint instead of downloading the model locally
+        embeddings = HuggingFaceEndpointEmbeddings(
+            model="sentence-transformers/all-MiniLM-L6-v2",
+            huggingfacehub_api_token=os.environ.get("HF_TOKEN")
+        )
+        
         vectorstore = Chroma(persist_directory=db_path, embedding_function=embeddings)
         ai_cache["retriever"] = vectorstore.as_retriever(search_kwargs={"k": 3})
         ai_cache["llm"] = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.3)
@@ -42,7 +46,6 @@ def get_ai_engines():
     
     return ai_cache["retriever"], ai_cache["llm"]
 
-# 3. Prompts & Models
 system_prompt = (
     "You are a hyper-niche, expert cricket sports analyst. "
     "Use the following pieces of retrieved context AND the chat history to answer the user's question.\n\n"
@@ -68,10 +71,8 @@ class ChatRequest(BaseModel):
     question: str
     history: list[Message] = []
 
-# 4. Endpoints
 @app.post("/ask")
 async def ask_analyst(request: ChatRequest):
-    # Grab the AI models (will pause to load if it's the very first request)
     retriever, llm = get_ai_engines()
     
     docs = retriever.invoke(request.question)
@@ -92,7 +93,6 @@ async def ask_analyst(request: ChatRequest):
     
     return {"answer": response_text}
 
-# This is what Render checks to see if you are alive. It will respond immediately now.
 @app.get("/")
 async def root():
-    return {"status": "AI Server is running live! (Models will load on first question)"}
+    return {"status": "AI Server is running live!"}
