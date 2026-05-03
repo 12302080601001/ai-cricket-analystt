@@ -17,6 +17,7 @@ function App() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // New state for mobile responsiveness
 
   // Load chats from Local Storage
   useEffect(() => {
@@ -45,6 +46,7 @@ function App() {
     };
     setSessions([newSession, ...sessions]);
     setActiveSessionId(newSession.id);
+    setIsSidebarOpen(false); // Close sidebar on mobile when new chat is created
   };
 
   const activeSession = sessions.find(s => s.id === activeSessionId);
@@ -64,7 +66,7 @@ function App() {
     setIsLoading(true);
 
     try {
-      // THE MAGIC FIX: Pointing your frontend to your live Render backend!
+      // POINTING TO LOCALHOST FIRST! (Change this to Render URL later)
       const response = await fetch('https://ai-cricket-analystt.onrender.com/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -88,8 +90,13 @@ function App() {
 
   return (
     <div className="app-container">
+      {/* Mobile Overlay Background */}
+      {isSidebarOpen && (
+        <div className="sidebar-overlay" onClick={() => setIsSidebarOpen(false)}></div>
+      )}
+
       {/* SIDEBAR */}
-      <div className="sidebar">
+      <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
         <button className="new-chat-btn" onClick={createNewChat}>
           + NEW MATCH INQUIRY
         </button>
@@ -98,7 +105,10 @@ function App() {
             <div 
               key={session.id} 
               className={`session-item ${session.id === activeSessionId ? 'active' : ''}`}
-              onClick={() => setActiveSessionId(session.id)}
+              onClick={() => {
+                setActiveSessionId(session.id);
+                setIsSidebarOpen(false); // Auto-close sidebar on mobile after selecting a chat
+              }}
             >
               🏏 {session.title}
             </div>
@@ -109,6 +119,10 @@ function App() {
       {/* MAIN CHAT */}
       <div className="main-chat">
         <header className="scoreboard-header">
+          {/* Hamburger Menu for Mobile */}
+          <button className="hamburger-btn" onClick={() => setIsSidebarOpen(true)}>
+            ☰
+          </button>
           <div className="header-content">
             <h1>LIVE: AI CRICKET ANALYST</h1>
             <p className="subtitle">BALL-BY-BALL DATA INSIGHTS & MATCH SUMMARIES</p>
@@ -149,7 +163,7 @@ function App() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-            placeholder="Ask a question, then try a follow-up like 'Who was man of the match?'..."
+            placeholder="Ask a question..."
             disabled={isLoading}
           />
           <button className="send-btn" onClick={sendMessage} disabled={isLoading || !input.trim()}>

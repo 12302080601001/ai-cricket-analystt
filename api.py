@@ -4,16 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEndpointEmbeddings 
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
-
-# THE FIX: Imported from langchain_core.tools instead of langchain.tools.retriever
-from langchain_core.tools import create_retriever_tool
-from langchain_community.tools import DuckDuckGoSearchRun
-from langchain.agents import create_tool_calling_agent, AgentExecutor
 
 app = FastAPI(title="Cricket AI Agent API")
 
@@ -27,64 +20,32 @@ app.add_middleware(
 
 load_dotenv()
 
-db_path = "./chroma_db"
-if not os.path.exists(db_path):
-    os.makedirs(db_path)
-
+# We use a simple cache to hold the AI in memory
 ai_cache = {}
 
-def get_ai_agent():
-    if "agent_executor" not in ai_cache:
-        print("Loading AI Agent and equipping tools...")
+def get_ai_chain():
+    if "chain" not in ai_cache:
+        print("Loading AI Brain...")
         
-        # 1. Load Embeddings (Using API to prevent Render crashes)
-        embeddings = HuggingFaceEndpointEmbeddings(
-            model="sentence-transformers/all-MiniLM-L6-v2",
-            huggingfacehub_api_token=os.environ.get("HF_TOKEN")
-        )
-        vectorstore = Chroma(persist_directory=db_path, embedding_function=embeddings)
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+        # Setup LLM - Direct connection to Groq
+        llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.6)
         
-        # 2. CREATE TOOL 1: The Historical Database
-        retriever_tool = create_retriever_tool(
-            retriever,
-            "historical_cricket_data",
-            "Search this tool FIRST for past cricket matches, historical stats, player info, and rules."
-        )
-        
-        # 3. CREATE TOOL 2: Live Internet Search
-        search_tool = DuckDuckGoSearchRun(
-            name="live_internet_search",
-            description="Search the internet for LIVE cricket scores, breaking news, or matches happening today."
-        )
-        
-        tools = [retriever_tool, search_tool]
-        
-        # 4. Setup LLM (Temperature 0 is best for agents so they think logically)
-        llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
-        
-        # 5. Create the Agent Prompt
+        # Create a simple conversational prompt
         prompt = ChatPromptTemplate.from_messages([
             ("system", "You are a hyper-niche, expert cricket sports analyst. "
-                       "You have access to tools. Use them to answer the user's questions! "
-                       "If the question is about historical data, use the historical_cricket_data tool. "
-                       "If it is about a live match or current news, use the live_internet_search tool. "
+                       "You know everything about cricket history and stats. "
                        "Always write like an energetic, passionate sports commentator!"),
             MessagesPlaceholder(variable_name="chat_history"),
-            ("human", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
+            ("human", "{input}")
         ])
         
-        # 6. Build the Agent
-        agent = create_tool_calling_agent(llm, tools, prompt)
+        # Chain the prompt directly to the LLM (No tools, no agents!)
+        chain = prompt | llm
         
-        # verbose=True lets you see the agent's thought process in the Render logs!
-        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-        
-        ai_cache["agent_executor"] = agent_executor
-        print("AI Agent loaded and ready to answer!")
+        ai_cache["chain"] = chain
+        print("AI loaded and ready to answer!")
     
-    return ai_cache["agent_executor"]
+    return ai_cache["chain"]
 
 class Message(BaseModel):
     sender: str
@@ -96,7 +57,7 @@ class ChatRequest(BaseModel):
 
 @app.post("/ask")
 async def ask_analyst(request: ChatRequest):
-    agent_executor = get_ai_agent()
+    chain = get_ai_chain()
     
     # Convert your frontend history into LangChain's memory format
     langchain_history = []
@@ -106,13 +67,14 @@ async def ask_analyst(request: ChatRequest):
         else:
             langchain_history.append(AIMessage(content=msg.text))
     
-    # Invoke the agent! It will automatically think, pick a tool, search, and answer.
-    response = agent_executor.invoke({
+    # Invoke the chain directly!
+    response = chain.invoke({
         "input": request.question,
         "chat_history": langchain_history
     })
     
-    return {"answer": response["output"]}
+    # Because it's a direct LLM chain, the answer is in response.content
+    return {"answer": response.content}
 
 @app.get("/")
 async def root():
