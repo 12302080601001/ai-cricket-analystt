@@ -1,14 +1,13 @@
 import os
 import json
-import shutil
+from dotenv import load_dotenv
 from langchain_core.documents import Document
-from langchain_chroma import Chroma
+from langchain_pinecone import PineconeVectorStore
 from langchain_huggingface import HuggingFaceEmbeddings
 
-# 1. Clean up the old database to avoid duplicates
-if os.path.exists("./chroma_db"):
-    print("Deleting old database to start fresh...")
-    shutil.rmtree("./chroma_db")
+# --- THE MAGIC WAND ---
+# This looks for your hidden .env file and secretly loads your API keys!
+load_dotenv()
 
 # 2. Load the embedding model
 print("Loading embedding model...")
@@ -80,8 +79,14 @@ for filename in os.listdir(folder_path):
 
 print(f"Successfully prepared {len(documents)} deep-dive match documents!")
 
-# 6. Save the upgraded data to ChromaDB
-print("Saving to ChromaDB...")
-vectorstore = Chroma.from_documents(documents, embeddings, persist_directory="./chroma_db")
+# 6. Save the upgraded data to PINECONE!
+print("Pushing data to Pinecone cloud...")
+index_name = "cricket-db"
 
-print("Database built successfully with player stats! 🏏")
+vectorstore = PineconeVectorStore.from_documents(
+    documents=documents, 
+    embedding=embeddings,
+    index_name=index_name
+)
+
+print("Boom! Database built successfully with player stats uploaded to Pinecone! 🏏")
