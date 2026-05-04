@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/ask",
+      "destination": "http://51.20.51.155:8000/ask"
+    }
+  ]
+}

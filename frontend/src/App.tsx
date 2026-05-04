@@ -12,12 +12,18 @@ interface ChatSession {
   messages: Message[];
 }
 
+// SMART API ROUTING:
+// If on local laptop, hit AWS directly. If on Vercel, use the secure proxy.
+const API_URL = window.location.hostname === 'localhost' 
+  ? 'http://51.20.51.155:8000/ask' 
+  : '/api/ask'; 
+
 function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // New state for mobile responsiveness
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Load chats from Local Storage
   useEffect(() => {
@@ -46,7 +52,7 @@ function App() {
     };
     setSessions([newSession, ...sessions]);
     setActiveSessionId(newSession.id);
-    setIsSidebarOpen(false); // Close sidebar on mobile when new chat is created
+    setIsSidebarOpen(false);
   };
 
   const activeSession = sessions.find(s => s.id === activeSessionId);
@@ -66,12 +72,17 @@ function App() {
     setIsLoading(true);
 
     try {
-      // POINTING TO LOCALHOST FIRST! (Change this to Render URL later)
-      const response = await fetch('https://ai-cricket-analystt.onrender.com/ask', {
+      console.log(`Sending request to: ${API_URL}`);
+      
+      const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: userMessage.text, history: chatHistory }),
       });
+
+      if (!response.ok) {
+        throw new Error(`Server error! Status: ${response.status}`);
+      }
 
       const data = await response.json();
       const aiMessage: Message = { sender: 'ai', text: data.answer };
@@ -82,7 +93,12 @@ function App() {
       }));
 
     } catch (error) {
-      console.error("Error:", error);
+      console.error("Critical Error:", error);
+      const errorMessage: Message = { sender: 'ai', text: "⚠️ AWS Analyst Server is currently offline or unreachable." };
+      setSessions(prev => prev.map(s => {
+        if (s.id === activeSessionId) return { ...s, messages: [...s.messages, errorMessage] };
+        return s;
+      }));
     } finally {
       setIsLoading(false);
     }
@@ -107,7 +123,7 @@ function App() {
               className={`session-item ${session.id === activeSessionId ? 'active' : ''}`}
               onClick={() => {
                 setActiveSessionId(session.id);
-                setIsSidebarOpen(false); // Auto-close sidebar on mobile after selecting a chat
+                setIsSidebarOpen(false);
               }}
             >
               🏏 {session.title}
