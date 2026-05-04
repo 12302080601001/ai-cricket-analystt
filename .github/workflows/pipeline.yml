@@ -23,7 +23,7 @@ jobs:
       - name: Install Dependencies
         # We only install exactly what the pipeline needs to save time
         run: |
-          pip install requests sentence-transformers pinecone-client
+          pip install requests sentence-transformers pinecone
           
       - name: Run Data Pipeline
         env:
