@@ -18,7 +18,7 @@ def fetch_and_update():
     print("☁️ Pushing to Pinecone...")
     # 3. Load: Push to your Pinecone index
     pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-    index = pc.Index("cricket-index") # Make sure this matches your exact Pinecone index name!
+    index = pc.Index("cricket-db") # Make sure this matches your exact Pinecone index name!
     
     # We use a unique ID for each daily update (like the date)
     import datetime
