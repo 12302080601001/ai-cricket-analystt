@@ -1,0 +1,32 @@
+name: Daily Cricket Data Pipeline
+
+on:
+  # This tells it to run automatically at Midnight UTC every day
+  schedule:
+    - cron: '0 0 * * *' 
+  # This button allows you to trigger it manually for testing!
+  workflow_dispatch: 
+
+jobs:
+  update-brain:
+    runs-on: ubuntu-latest # GitHub gives us a free Linux machine
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install Dependencies
+        # We only install exactly what the pipeline needs to save time
+        run: |
+          pip install requests sentence-transformers pinecone-client
+          
+      - name: Run Data Pipeline
+        env:
+          # This securely pulls the secret you saved in Step 2
+          PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+        run: python daily_updater.py
