@@ -1,32 +1,36 @@
-name: Daily Cricket Data Pipeline
+name: Deploy to AWS EC2
 
 on:
-  # This tells it to run automatically at Midnight UTC every day
-  schedule:
-    - cron: '0 0 * * *' 
-  # This button allows you to trigger it manually for testing!
-  workflow_dispatch: 
+  push:
+    branches:
+      - main  # Change to 'master' if your branch is called master
 
 jobs:
-  update-brain:
-    runs-on: ubuntu-latest # GitHub gives us a free Linux machine
-    
+  deploy:
+    runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-        
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Deploying via SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          python-version: '3.11'
-          
-      - name: Install Dependencies
-        # We only install exactly what the pipeline needs to save time
-        run: |
-          pip install requests sentence-transformers pinecone
-          
-      - name: Run Data Pipeline
-        env:
-          # This securely pulls the secret you saved in Step 2
-          PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
-        run: python daily_updater.py
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo "1. Moving into the project folder..."
+            cd ~/ai-cricket-analystt
+            
+            echo "2. Pulling the latest code from GitHub..."
+            git pull origin main
+            
+            echo "3. Stopping and removing the old Docker container..."
+            sudo docker ps -q --filter ancestor=cricket-api | xargs -r sudo docker stop
+            sudo docker ps -a -q --filter ancestor=cricket-api | xargs -r sudo docker rm
+            
+            echo "4. Building the new, updated Docker image..."
+            sudo docker build -t cricket-api .
+            
+            echo "5. Starting the new container in the background..."
+            sudo docker run -d -p 8000:8000 cricket-api
+            
+            echo "Deployment Successful, Bro!"
